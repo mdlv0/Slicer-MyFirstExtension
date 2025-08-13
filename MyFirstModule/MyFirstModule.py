@@ -120,8 +120,9 @@ class MyFirstModuleParameterNode:
     inputVolume: vtkMRMLMarkupsFiducialNode # vtkMRMLScalarVolumeNode
     imageThreshold: Annotated[float, WithinRange(-100, 500)] = 100
     invertThreshold: bool = False
-    thresholdedVolume: vtkMRMLMarkupsFiducialNode #vtkMRMLScalarVolumeNode
-    invertedVolume: vtkMRMLMarkupsFiducialNode #vtkMRMLScalarVolumeNode
+    thresholdedVolume: vtkMRMLScalarVolumeNode
+    invertedVolume: vtkMRMLScalarVolumeNode
+    autoUpdate: bool = False
 
 
 #
@@ -172,7 +173,7 @@ class MyFirstModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # Buttons
         self.ui.applyButton.connect("clicked(bool)", self.onApplyButton)
         self.ui.autoUpdateCheckBox.connect("toggled(bool)", self.onEnableAutoUpdate)
-        
+
         # Make sure parameter node is initialized (needed for module reload)
         self.initializeParameterNode()
 
