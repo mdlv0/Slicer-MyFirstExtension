@@ -141,6 +141,8 @@ class MyFirstModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         self.logic = None
         self._parameterNode = None
         self._parameterNodeGuiTag = None
+        self.observedMarkupNode = None
+        self._markupsObserverTag = None
 
     def setup(self) -> None:
         """Called when the user opens the module the first time and the widget is initialized."""
@@ -169,7 +171,8 @@ class MyFirstModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Buttons
         self.ui.applyButton.connect("clicked(bool)", self.onApplyButton)
-
+        self.ui.autoUpdateCheckBox.connect("toggled(bool)", self.onEnableAutoUpdate)
+        
         # Make sure parameter node is initialized (needed for module reload)
         self.initializeParameterNode()
 
@@ -200,6 +203,19 @@ class MyFirstModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
         # If this module is shown while the scene is closed then recreate a new parameter node immediately
         if self.parent.isEntered:
             self.initializeParameterNode()
+
+    def onEnableAutoUpdate(self, autoUpdate):
+        if self._markupsObserverTag:
+            self.observedMarkupNode.RemoveObserver(self._markupsObserverTag)
+            self.observedMarkupNode = None
+            self._markupsObserverTag = None
+        if autoUpdate and self.ui.inputSelector.currentNode:
+            self.observedMarkupNode = self.ui.inputSelector.currentNode()
+            self._markupsObserverTag = self.observedMarkupNode.AddObserver(
+                slicer.vtkMRMLMarkupsNode.PointModifiedEvent, self.onMarkupsUpdated)
+    
+    def onMarkupsUpdated(self, caller=None, event=None):
+        self.onApplyButton()
 
     def initializeParameterNode(self) -> None:
         """Ensure parameter node exists and observed."""
