@@ -17,6 +17,8 @@ from slicer.parameterNodeWrapper import (
 from slicer import vtkMRMLScalarVolumeNode
 from slicer import vtkMRMLMarkupsFiducialNode
 
+from slicer import vtkMRMLModelNode
+import SampleData
 #
 # MyFirstModule
 #
@@ -118,11 +120,13 @@ class MyFirstModuleParameterNode:
     """
 
     inputVolume: vtkMRMLMarkupsFiducialNode # vtkMRMLScalarVolumeNode
-    imageThreshold: Annotated[float, WithinRange(-100, 500)] = 100
+    imageThreshold: Annotated[float, WithinRange(0, 1)] = 0.50
     invertThreshold: bool = False
     thresholdedVolume: vtkMRMLScalarVolumeNode
     invertedVolume: vtkMRMLScalarVolumeNode
     autoUpdate: bool = False
+
+    outputModel: vtkMRMLModelNode 
 
 
 #
@@ -176,6 +180,9 @@ class MyFirstModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
 
         # Make sure parameter node is initialized (needed for module reload)
         self.initializeParameterNode()
+
+        # Load MRHead 
+        SampleData.downloadSample("MRHead")
 
     def cleanup(self) -> None:
         """Called when the application closes and the module widget is destroyed."""
@@ -259,12 +266,33 @@ class MyFirstModuleWidget(ScriptedLoadableModuleWidget, VTKObservationMixin):
     def onApplyButton(self) -> None:
         """Run processing when user clicks "Apply" button."""
         with slicer.util.tryWithErrorDisplay(_("Failed to compute results."), waitCursor=True):
-            # Compute output
-            self.logic.process(self.ui.inputSelector.currentNode(),
-                                self.ui.outputSelector.currentNode(),
-                                self.ui.imageThresholdSliderWidget.value,
-                                self.ui.invertOutputCheckBox.checked)
-            self.ui.centerOfMassValueLabel.text = str(self.logic.centerOfMass)
+           
+            inputMarkupsNode = self.ui.inputSelector.currentNode()
+            
+            # Get the output node; create it if it doesn't exist
+            outputModelNode = self.ui.outputSelector.currentNode()
+            if not outputModelNode:
+                outputModelNode = slicer.mrmlScene.AddNewNodeByClass("vtkMRMLModelNode", "Center of Mass Sphere")
+                self.ui.outputSelector.setCurrentNode(outputModelNode)
+
+            # Calculate the distance and sphere radius
+            if inputMarkupsNode and inputMarkupsNode.GetNumberOfControlPoints() >= 2:
+                p1 = [0, 0, 0]
+                p2 = [0, 0, 0]
+                inputMarkupsNode.GetNthControlPointPosition(0, p1)
+                inputMarkupsNode.GetNthControlPointPosition(1, p2)
+                
+                import numpy as np
+                distance = np.linalg.norm(np.array(p1) - np.array(p2))
+                sphereRadius = distance / 2.0
+                
+                # Call the logic 
+                self.logic.process(inputMarkupsNode, outputModelNode, sphereRadius)
+                
+                # Update the UI with the result
+                self.ui.centerOfMassValueLabel.text = str(self.logic.centerOfMass)
+            else:
+                logging.warning("Please place at least two markup points to calculate the distance.")
 
 
 #
@@ -301,11 +329,22 @@ class MyFirstModuleLogic(ScriptedLoadableModuleLogic):
         logging.info(f'Center of mass for {markupsNode.GetName()}: {centerOfMass}')
         return centerOfMass
     
-    def process(self, inputMarkups, outputVolume, imageThreshold, enableScreenshots=0):
+    def process(self, inputMarkups, outputModel, sphereRadius):
         """
         Compute center of mass of input markup points
         """
         self.centerOfMass = self.getCenterOfMass(inputMarkups)
+
+        sphereSource = vtk.vtkSphereSource()
+        sphereSource.SetCenter(self.centerOfMass)
+        sphereSource.SetRadius(sphereRadius)  
+        sphereSource.Update()
+
+        outputModel.SetAndObservePolyData(sphereSource.GetOutput())
+        outputModel.CreateDefaultDisplayNodes()
+        outputModel.GetDisplayNode().SetVisibility(True)
+        outputModel.GetDisplayNode().SetVisibility2D(True)
+
         return True
 
 #
@@ -350,7 +389,7 @@ class MyFirstModuleTest(ScriptedLoadableModuleTest):
         registerSampleData()
         inputVolume = SampleData.downloadSample("MyFirstModule1")
         self.delayDisplay("Loaded test data set")
-
+        
         inputScalarRange = inputVolume.GetImageData().GetScalarRange()
         self.assertEqual(inputScalarRange[0], 0)
         self.assertEqual(inputScalarRange[1], 695)
